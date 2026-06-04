@@ -7,7 +7,7 @@ import pdfplumber
 import openpyxl
 from io import BytesIO
 
-PORT = 8080
+PORT = int(os.environ.get('PORT', 8080))
 
 class ChallanHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
