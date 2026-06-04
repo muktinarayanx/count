@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challan PDF to Excel Extractor | KHANANSOFT</title>
+    <meta name="description" content="Extract challan numbers and mineral weights from Bihar Mining Department PDF documents and export to Excel spreadsheets.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Animated background particles -->
+    <div class="bg-particles" id="bgParticles"></div>
+    
+    <!-- Main App Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 40 40" fill="none">
+                        <rect x="2" y="2" width="36" height="36" rx="8" stroke="url(#logoGrad)" stroke-width="2.5"/>
+                        <path d="M12 28V16l8 12 8-12v12" stroke="url(#logoGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
+                                <stop stop-color="#6366f1"/>
+                                <stop offset="1" stop-color="#8b5cf6"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="app-title">Challan Extractor</h1>
+                    <p class="app-subtitle">खनिज अभिवहन पास → Excel</p>
+                </div>
+            </div>
+            <div class="header-badge">
+                <span class="badge-dot"></span>
+                Bihar Mining Dept
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Step 1: Upload Section -->
+            <section class="card upload-section" id="uploadSection">
+                <div class="card-header">
+                    <div class="step-badge">1</div>
+                    <div>
+                        <h2 class="card-title">Upload PDF Challans</h2>
+                        <p class="card-desc">Drop your KHANANSOFT challan PDF files here</p>
+                    </div>
+                </div>
+                <div class="dropzone" id="dropzone">
+                    <div class="dropzone-content">
+                        <div class="upload-icon-wrapper">
+                            <svg class="upload-icon" viewBox="0 0 64 64" fill="none">
+                                <rect x="8" y="12" width="48" height="40" rx="6" stroke="currentColor" stroke-width="2"/>
+                                <path d="M32 22v20M24 30l8-8 8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <p class="dropzone-text">Drag & drop PDF files here</p>
+                        <p class="dropzone-subtext">or click to browse</p>
+                        <input type="file" id="fileInput" multiple accept=".pdf" hidden>
+                    </div>
+                </div>
+                <!-- File List -->
+                <div class="file-list" id="fileList"></div>
+            </section>
+
+            <!-- Step 2: Excel Template (Optional) -->
+            <section class="card template-section" id="templateSection">
+                <div class="card-header">
+                    <div class="step-badge">2</div>
+                    <div>
+                        <h2 class="card-title">Excel Template <span class="optional-tag">Optional</span></h2>
+                        <p class="card-desc">Upload your existing Excel template to preserve formulas</p>
+                    </div>
+                </div>
+                <div class="template-upload-row">
+                    <div class="template-dropzone" id="templateDropzone">
+                        <svg class="template-icon" viewBox="0 0 32 32" fill="none">
+                            <rect x="4" y="4" width="24" height="24" rx="3" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M10 10h12M10 16h12M10 22h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        <span>Upload .xlsx template</span>
+                        <input type="file" id="templateInput" accept=".xlsx" hidden>
+                    </div>
+                    <div class="template-info" id="templateInfo">
+                        <p>Default: Column A = Challan No., Column B = Weight (Mt)</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 3: Extract & Process -->
+            <section class="card process-section" id="processSection">
+                <div class="card-header">
+                    <div class="step-badge">3</div>
+                    <div>
+                        <h2 class="card-title">Extract & Download</h2>
+                        <p class="card-desc">Process PDFs and generate your Excel file</p>
+                    </div>
+                </div>
+                <button class="btn-process" id="processBtn" disabled>
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Extract & Generate Excel</span>
+                </button>
+
+                <!-- Progress Bar -->
+                <div class="progress-container" id="progressContainer" style="display:none;">
+                    <div class="progress-header">
+                        <span class="progress-label" id="progressLabel">Processing...</span>
+                        <span class="progress-pct" id="progressPct">0%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Table -->
+            <section class="card results-section" id="resultsSection" style="display:none;">
+                <div class="card-header">
+                    <div class="step-badge check-badge">✓</div>
+                    <div>
+                        <h2 class="card-title">Extracted Data</h2>
+                        <p class="card-desc" id="resultsCount"></p>
+                    </div>
+                    <button class="btn-download" id="downloadBtn">
+                        <svg class="btn-icon-sm" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Download Excel
+                    </button>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table" id="dataTable">
+                        <thead>
+                            <tr>
+                                <th class="th-num">#</th>
+                                <th class="th-challan">Challan Number</th>
+                                <th class="th-weight">Weight (Mt)</th>
+                                <th class="th-source">Source Page</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Challan Extractor &mdash; Extracts data from Bihar Mining Dept (KHANANSOFT) PDF challans</p>
+        </footer>
+    </div>
+
+    <!-- PDF.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+    <script src="app.js" type="module"></script>
+</body>
+</html>

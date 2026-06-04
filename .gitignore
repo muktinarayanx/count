@@ -1,0 +1,8 @@
+node_modules/
+*.log
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+modified_all 10.pdf
+challan_data_output.xlsx
