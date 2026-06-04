@@ -2,45 +2,91 @@ import http.server
 import socketserver
 import os
 import re
-import cgi
+import json
 import pdfplumber
 import openpyxl
 from io import BytesIO
 
 PORT = int(os.environ.get('PORT', 8080))
 
+
+def parse_multipart(content_type, body):
+    """Parse multipart/form-data without the cgi module."""
+    # Extract boundary from content-type header
+    boundary = None
+    for part in content_type.split(';'):
+        part = part.strip()
+        if part.startswith('boundary='):
+            boundary = part[len('boundary='):]
+            break
+
+    if not boundary:
+        return [], None
+
+    boundary_bytes = ('--' + boundary).encode()
+    end_boundary = (boundary_bytes + b'--')
+
+    parts = body.split(boundary_bytes)
+    pdf_files = []
+    excel_template = None
+
+    for part in parts:
+        part = part.strip(b'\r\n')
+        if not part or part == b'--' or part == b'':
+            continue
+
+        # Split headers and body
+        header_end = part.find(b'\r\n\r\n')
+        if header_end == -1:
+            continue
+
+        header_section = part[:header_end].decode('utf-8', errors='replace')
+        file_body = part[header_end + 4:]
+        # Remove trailing \r\n
+        if file_body.endswith(b'\r\n'):
+            file_body = file_body[:-2]
+
+        # Parse Content-Disposition
+        filename = None
+        field_name = None
+        for line in header_section.split('\r\n'):
+            if 'Content-Disposition' in line:
+                for token in line.split(';'):
+                    token = token.strip()
+                    if token.startswith('filename="'):
+                        filename = token[len('filename="'):-1]
+                    elif token.startswith('name="'):
+                        field_name = token[len('name="'):-1]
+
+        if filename:
+            if filename.lower().endswith('.pdf'):
+                pdf_files.append((filename, file_body))
+            elif filename.lower().endswith('.xlsx'):
+                excel_template = file_body
+
+    return pdf_files, excel_template
+
+
 class ChallanHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # Add CORS headers for all responses
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
+
     def do_POST(self):
         if self.path == '/process':
-            # Handle file uploads
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={'REQUEST_METHOD': 'POST',
-                         'CONTENT_TYPE': self.headers['Content-Type'],
-                         }
-            )
-            
-            # Extract files
-            pdf_files = []
-            excel_template = None
-            
-            # Form fields can be list or single item
-            for key in form.keys():
-                fileitem = form[key]
-                if isinstance(fileitem, list):
-                    for item in fileitem:
-                        if item.filename:
-                            if item.filename.lower().endswith('.pdf'):
-                                pdf_files.append((item.filename, item.file.read()))
-                            elif item.filename.lower().endswith('.xlsx'):
-                                excel_template = item.file.read()
-                else:
-                    if fileitem.filename:
-                        if fileitem.filename.lower().endswith('.pdf'):
-                            pdf_files.append((fileitem.filename, fileitem.file.read()))
-                        elif fileitem.filename.lower().endswith('.xlsx'):
-                            excel_template = fileitem.file.read()
+            content_length = int(self.headers.get('Content-Length', 0))
+            content_type = self.headers.get('Content-Type', '')
+            body = self.rfile.read(content_length)
+
+            # Parse multipart form data
+            pdf_files, excel_template = parse_multipart(content_type, body)
 
             if not pdf_files:
                 self.send_error(400, "No PDF files uploaded")
@@ -49,30 +95,33 @@ class ChallanHandler(http.server.SimpleHTTPRequestHandler):
             # Extract data from PDFs
             all_data = []
             for name, pdf_bytes in pdf_files:
-                with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-                    for i, page in enumerate(pdf.pages):
-                        text = page.extract_text()
-                        if not text:
-                            continue
-                        
-                        # 1. Challan extraction: Look for any 18-25 digit sequence
-                        challan_match = re.search(r'\b\d{18,25}\b', text)
-                        challan_no = challan_match.group(0) if challan_match else None
-                        
-                        # 2. Weight extraction: Look for all decimal/integer numbers followed by M t or Mt
-                        weight = None
-                        mt_matches = re.findall(r'(\d+\.?\d*)\s*[Mm]\s*[Tt]', text)
-                        small_weights = [float(v) for v in mt_matches if float(v) < 1000 and float(v) > 0]
-                        if small_weights:
-                            weight = small_weights[0]
-                        
-                        if challan_no and weight is not None:
-                            all_data.append({
-                                'challan': challan_no,
-                                'weight': weight,
-                                'page': i + 1,
-                                'fileName': name
-                            })
+                try:
+                    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+                        for i, page in enumerate(pdf.pages):
+                            text = page.extract_text()
+                            if not text:
+                                continue
+
+                            # 1. Challan extraction
+                            challan_match = re.search(r'\b\d{18,25}\b', text)
+                            challan_no = challan_match.group(0) if challan_match else None
+
+                            # 2. Weight extraction
+                            weight = None
+                            mt_matches = re.findall(r'(\d+\.?\d*)\s*[Mm]\s*[Tt]', text)
+                            small_weights = [float(v) for v in mt_matches if 0 < float(v) < 1000]
+                            if small_weights:
+                                weight = small_weights[0]
+
+                            if challan_no and weight is not None:
+                                all_data.append({
+                                    'challan': challan_no,
+                                    'weight': weight,
+                                    'page': i + 1,
+                                    'fileName': name
+                                })
+                except Exception as e:
+                    print(f"Error processing {name}: {e}")
 
             if not all_data:
                 self.send_error(404, "No challan data found in the uploaded PDFs")
@@ -82,9 +131,9 @@ class ChallanHandler(http.server.SimpleHTTPRequestHandler):
             if excel_template:
                 wb = openpyxl.load_workbook(BytesIO(excel_template))
             else:
-                # Fallback to local file if exists
-                if os.path.exists("challan check formula 1.xlsx"):
-                    wb = openpyxl.load_workbook("challan check formula 1.xlsx")
+                template_path = os.path.join(os.path.dirname(__file__), "challan check formula 1.xlsx")
+                if os.path.exists(template_path):
+                    wb = openpyxl.load_workbook(template_path)
                 else:
                     wb = openpyxl.Workbook()
                     ws = wb.active
@@ -95,7 +144,7 @@ class ChallanHandler(http.server.SimpleHTTPRequestHandler):
             ws = wb[wb.sheetnames[0]]
             start_row = 2
 
-            # Write data in-place to preserve styling and conditional formatting rules
+            # Write data
             for idx, d in enumerate(all_data):
                 row = start_row + idx
                 ws.cell(row=row, column=1, value=d['challan'])
@@ -115,10 +164,12 @@ class ChallanHandler(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_POST()
 
+
 # Start server
+print(f"Starting server on port {PORT}...")
 socketserver.TCPServer.allow_reuse_address = True
-with socketserver.TCPServer(("", PORT), ChallanHandler) as httpd:
-    print(f"Serving at port {PORT}")
+with socketserver.TCPServer(("0.0.0.0", PORT), ChallanHandler) as httpd:
+    print(f"Serving at http://0.0.0.0:{PORT}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
