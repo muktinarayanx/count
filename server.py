@@ -29,6 +29,7 @@ def parse_multipart(content_type, body):
     parts = body.split(boundary_bytes)
     pdf_files = []
     excel_template = None
+    json_data = None
 
     for part in parts:
         part = part.strip(b'\r\n')
@@ -63,8 +64,10 @@ def parse_multipart(content_type, body):
                 pdf_files.append((filename, file_body))
             elif filename.lower().endswith('.xlsx'):
                 excel_template = file_body
+            elif filename.lower().endswith('.json'):
+                json_data = file_body
 
-    return pdf_files, excel_template
+    return pdf_files, excel_template, json_data
 
 
 class ChallanHandler(http.server.SimpleHTTPRequestHandler):
@@ -86,45 +89,53 @@ class ChallanHandler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(content_length)
 
             # Parse multipart form data
-            pdf_files, excel_template = parse_multipart(content_type, body)
+            pdf_files, excel_template, json_data = parse_multipart(content_type, body)
 
-            if not pdf_files:
-                self.send_error(400, "No PDF files uploaded")
+            all_data = []
+
+            if json_data:
+                try:
+                    all_data = json.loads(json_data.decode('utf-8', errors='replace'))
+                except Exception as e:
+                    print(f"Error parsing JSON: {e}")
+                    self.send_error(400, "Invalid JSON data")
+                    return
+            elif pdf_files:
+                # Extract data from PDFs (Legacy fallback)
+                for name, pdf_bytes in pdf_files:
+                    try:
+                        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+                            for i, page in enumerate(pdf.pages):
+                                text = page.extract_text()
+                                if not text:
+                                    continue
+
+                                # 1. Challan extraction
+                                challan_match = re.search(r'\b\d{18,25}\b', text)
+                                challan_no = challan_match.group(0) if challan_match else None
+
+                                # 2. Weight extraction
+                                weight = None
+                                mt_matches = re.findall(r'(\d+\.?\d*)\s*[Mm]\s*[Tt]', text)
+                                small_weights = [float(v) for v in mt_matches if 0 < float(v) < 1000]
+                                if small_weights:
+                                    weight = small_weights[0]
+
+                                if challan_no and weight is not None:
+                                    all_data.append({
+                                        'challan': challan_no,
+                                        'weight': weight,
+                                        'page': i + 1,
+                                        'fileName': name
+                                    })
+                    except Exception as e:
+                        print(f"Error processing {name}: {e}")
+            else:
+                self.send_error(400, "No data uploaded")
                 return
 
-            # Extract data from PDFs
-            all_data = []
-            for name, pdf_bytes in pdf_files:
-                try:
-                    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-                        for i, page in enumerate(pdf.pages):
-                            text = page.extract_text()
-                            if not text:
-                                continue
-
-                            # 1. Challan extraction
-                            challan_match = re.search(r'\b\d{18,25}\b', text)
-                            challan_no = challan_match.group(0) if challan_match else None
-
-                            # 2. Weight extraction
-                            weight = None
-                            mt_matches = re.findall(r'(\d+\.?\d*)\s*[Mm]\s*[Tt]', text)
-                            small_weights = [float(v) for v in mt_matches if 0 < float(v) < 1000]
-                            if small_weights:
-                                weight = small_weights[0]
-
-                            if challan_no and weight is not None:
-                                all_data.append({
-                                    'challan': challan_no,
-                                    'weight': weight,
-                                    'page': i + 1,
-                                    'fileName': name
-                                })
-                except Exception as e:
-                    print(f"Error processing {name}: {e}")
-
             if not all_data:
-                self.send_error(404, "No challan data found in the uploaded PDFs")
+                self.send_error(404, "No challan data found")
                 return
 
             # Open template or create new workbook

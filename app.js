@@ -169,7 +169,11 @@ async function extractTextFromPdf(file) {
         const textContent = await page.getTextContent();
         const text = textContent.items.map(item => item.str).join(' ');
         pages.push({ pageNum: i, text });
+        
+        // Clean up page resources to save memory for large PDFs
+        try { page.cleanup(); } catch(e) {}
     }
+    try { await pdf.destroy(); } catch(e) {}
     return pages;
 }
 
@@ -252,10 +256,10 @@ function renderResults() {
 async function generateExcel() {
     const formData = new FormData();
     
-    // Add all uploaded PDF files
-    state.pdfFiles.forEach(f => {
-        formData.append('pdfs', f.file);
-    });
+    // Instead of sending the heavy PDFs, send the already-extracted data as JSON
+    const jsonStr = JSON.stringify(state.extractedData);
+    const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
+    formData.append('data', jsonBlob, 'data.json');
     
     // Add template if present
     if (state.templateFile) {
